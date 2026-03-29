@@ -80,7 +80,7 @@ else:  # All data
 
 # Get games from all selected competitions
 games = pd.concat([DLoader.games(row.competition_id, row.season_id) for row in selected_competitions.itertuples()])
-pdb.set_trace()
+#pdb.set_trace()
 
 if args.skip_load_rawdata:
     print("loading rawdata is skipped.")
