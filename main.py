@@ -1,4 +1,3 @@
-##aaaaa
 import os, pdb, warnings, pickle, argparse, time, random
 from tqdm import tqdm
 
@@ -409,9 +408,20 @@ else:
         home_team_name = lineups.loc[lineups["team_id"]==game.home_team_id,"team_name"].values[0]
         away_team_name = lineups.loc[lineups["team_id"]==game.away_team_id,"team_name"].values[0]
 
-        with open(datafolder+"/main/obso"+f"/{game.game_id}_{args.set_vel}.pkl", 'rb') as f:
-            obso_data = pickle.load(f)
-        
+        #元のやつ
+        #with open(datafolder+"/main/obso"+f"/{game.game_id}_{args.set_vel}.pkl", 'rb') as f:
+        #    obso_data = pickle.load(f)
+        #追加
+        try:
+            # ファイルを開こうとする
+            with open(datafolder+"/main/obso"+f"/{game.game_id}_{args.set_vel}.pkl", 'rb') as f:
+                obso_data = pickle.load(f)
+            # ファイルがあった場合の処理
+        except FileNotFoundError:
+            # もしファイルがなければ (FileNotFoundErrorが発生したら)
+            print(f"ファイルが見つからないため、ゲームID: {game.game_id} をスキップします。")
+            continue # スキップして次の試合のループに進む
+
         scorers_se = []
         non_scorers_se = []
 
@@ -625,103 +635,104 @@ else:
 
 
 ### 5. Evaluate team defense ###
-# if args.skip_evaluate_team_defense:
-#     print("Evaluating team defense is skipped")
-# else:
-#     # all seasons
-#     team_drso_results_all = {}
-#     for game in tqdm(list(games.itertuples()),desc="Evaluating team defense during all seasons"):
-#         sbload = Sblocal()
-#         actions = pd.read_hdf(spadl_h5, f"actions/{game.game_id}")
-#         lineups = pd.read_hdf(spadl_h5, f"lineups/{game.game_id}")
+if args.skip_evaluate_team_defense:     
+    print("Evaluating team defense is skipped")
+else:
+    # all seasons
+    team_drso_results_all = {}
+    for game in tqdm(list(games.itertuples()),desc="Evaluating team defense during all seasons"):
+        sbload = Sblocal()
+        actions = pd.read_hdf(spadl_h5, f"actions/{game.game_id}")         
+        lineups = pd.read_hdf(spadl_h5, f"lineups/{game.game_id}")
 
-#         home_team_name = lineups.loc[lineups["team_id"]==game.home_team_id,"team_name"].values[0]
-#         away_team_name = lineups.loc[lineups["team_id"]==game.away_team_id,"team_name"].values[0]
-#         home_team_differences = []
-#         home_team_concedes = game.away_score
-#         away_team_differences = []
-#         away_team_concedes = game.home_score
+        home_team_name = lineups.loc[lineups["team_id"]==game.home_team_id,"team_name"].values[0]
+        away_team_name = lineups.loc[lineups["team_id"]==game.away_team_id,"team_name"].values[0]
+        home_team_differences = []
+        home_team_concedes = game.away_score
+        away_team_differences = []
+        away_team_concedes = game.home_score
 
-#         for event_num in range(len(actions)):
-#             action = actions.loc[event_num]
-#             att_third = np.all(action[["Start X","End X"]].values >= np.array([17.5,17.5]))
+        for event_num in range(len(actions)):
+            action = actions.loc[event_num]
+            att_third = np.all(action[["Start X","End X"]].values >= np.array([17.5,17.5]))
 
-#             if att_third and action['Period']!=5:
-#                 with open(datafolder+f"/main/optimal_positioning/{game.game_id}/{event_num}.pkl", "rb") as f:
-#                     optimal_positioning = pickle.load(f)
+            if att_third and action['Period']!=5:
+                with open(datafolder+f"/main/optimal_positioning/{game.game_id}/{event_num}.pkl", "rb") as f:
+                    optimal_positioning = pickle.load(f)
 
-#                 if len(optimal_positioning["result"]) == 0:
-#                     continue
-#                 else:
-#                     Differences = []
-#                     for i in range(len(optimal_positioning["result"])):
-#                         Difference = (
-#                             optimal_positioning["result"][i]["optimal"]["obso"] - optimal_positioning["result"][i]["data"]["obso"]
-#                             )
-#                         Differences.append(Difference)
-#                     if (action["Type"] in spc.DEFENSE_TYPE) or (action["Type"] in spc.KEEPER_SPECIFIC_TYPE):
-#                         if action["Team"] == "Home":
-#                             home_team_differences.append(np.nanmean(np.array(Differences)))
-#                         elif action["Team"] == "Away":
-#                             away_team_differences.append(np.nanmean(np.array(Differences)))
-#                     else:
-#                         if action["Team"] == "Home":
-#                             away_team_differences.append(np.nanmean(np.array(Differences)))
-#                         elif action["Team"] == "Away":
-#                             home_team_differences.append(np.nanmean(np.array(Differences)))
+                if len(optimal_positioning["result"]) == 0:
+                    continue
+                else:
+                    Differences = []
+                    for i in range(len(optimal_positioning["result"])):
+                        Difference = (
+                            optimal_positioning["result"][i]["optimal"]["obso"] - optimal_positioning["result"][i]["data"]["obso"]
+                            )
+                        Differences.append(Difference)
+                    if (action["Type"] in spc.DEFENSE_TYPE) or (action["Type"] in spc.KEEPER_SPECIFIC_TYPE):
+                        if action["Team"] == "Home":
+                            home_team_differences.append(np.nanmean(np.array(Differences)))
+                        elif action["Team"] == "Away":
+                            away_team_differences.append(np.nanmean(np.array(Differences)))
+                    else:
+                        if action["Team"] == "Home":
+                            away_team_differences.append(np.nanmean(np.array(Differences)))
+                        elif action["Team"] == "Away":
+                            home_team_differences.append(np.nanmean(np.array(Differences)))
 
-#         home_team_result = {"Diff": home_team_differences}
-#         away_team_result = {"Diff": away_team_differences}
+        home_team_result = {"Diff": home_team_differences}
+        away_team_result = {"Diff": away_team_differences}
 
-#         if home_team_name in team_drso_results_all:
-#             team_drso_results_all[home_team_name]["Diff"].extend(home_team_result["Diff"])
-#         else:
-#             team_drso_results_all[home_team_name] = {}
-#             team_drso_results_all[home_team_name]["Diff"] = home_team_result["Diff"]
-#         if away_team_name in team_drso_results_all:
-#             team_drso_results_all[away_team_name]["Diff"].extend(away_team_result["Diff"])
-#         else:
-#             team_drso_results_all[away_team_name] = {}
-#             team_drso_results_all[away_team_name]["Diff"] = away_team_result["Diff"]
+        if home_team_name in team_drso_results_all:
+            team_drso_results_all[home_team_name]["Diff"].extend(home_team_result["Diff"])
+        else:
+            team_drso_results_all[home_team_name] = {}
+            team_drso_results_all[home_team_name]["Diff"] = home_team_result["Diff"]
+        if away_team_name in team_drso_results_all:
+            team_drso_results_all[away_team_name]["Diff"].extend(away_team_result["Diff"])
+        else:
+            team_drso_results_all[away_team_name] = {}
+            team_drso_results_all[away_team_name]["Diff"] = away_team_result["Diff"]
 
-#     team_drso_results = {
-#         "all": team_drso_results_all,
-#     }
+    team_drso_results = {
+        "all": team_drso_results_all,
+    }
 
-#     with open(datafolder+f"/main/optimal_positioning/team_drso_results.pkl", "wb") as f:
-#         pickle.dump(team_drso_results, f)
-#     print(datafolder+f"/main/optimal_positioning/team_drso_results.pkl" + " is saved.")
-
-
-# if args.skip_show_results:
-#     print("Showing results is skipped.")
-# else:
-#     with open(datafolder+f"/main/optimal_positioning/team_drso_results.pkl", "rb") as f:
-#         team_drso_results = pickle.load(f)
-
-#     key = "all"
-#     team_differences_list =[team_drso_results[key][team]["Diff"] for team in team_drso_results[key].keys()]
-#     team_concedes_list = [team_drso_results[key][team]["concedes"] for team in team_drso_results[key].keys()]
-#     correlation_cd, p_value_cd = scipy.stats.pearsonr(team_concedes_list, team_differences_list)
-#     print(correlation_cd,p_value_cd)
-
-#     fig, ax = plt.subplots(1, 1, figsize=(12, 9))
-#     ax.scatter(team_concedes_list,team_differences_list,marker="o",s=50,color="blue",alpha=0.6)
-#     ax.set_xlim(0, max(team_concedes_list)+1)
-#     text = [ax.text(
-#                 team_drso_results[key][team]["concedes"],
-#                 team_drso_results[key][team]["Diff"],
-#                 team,
-#                 fontsize=24,
-#                 color="#595959",
-#             ) for team in team_drso_results[key].keys()]
-#     adjust_text(text, arrowprops=dict(arrowstyle='->', color='blue', alpha=0.6,))
-#     ax.tick_params(axis="both",colors="#595959",labelsize=20,grid_color="#595959",grid_alpha=0.3,)
-#     ax.grid()
-#     fig.savefig(os.path.join(datafolder+f"/main/team_drso_results_for_concedes.png"))
-#     print(os.path.join(datafolder+f"/main/team_drso_results_for_concedes.png") + " is saved")
-#     plt.clf()
-#     plt.close()
+    with open(datafolder+f"/main/optimal_positioning/team_drso_results.pkl", "wb") as f:
+        pickle.dump(team_drso_results, f)
+    print(datafolder+f"/main/optimal_positioning/team_drso_results.pkl" + " is saved.")
 
 
-pdb.set_trace()
+if args.skip_show_results:
+    print("Showing results is skipped.")
+else:
+    with open(datafolder+f"/main/optimal_positioning/team_drso_results.pkl", "rb") as f:
+        team_drso_results = pickle.load(f)
+
+    key = "all"
+    team_differences_list =[team_drso_results[key][team]["Diff"] for team in team_drso_results[key].keys()]
+    team_concedes_list = [team_drso_results[key][team]["concedes"] for team in team_drso_results[key].keys()]
+    correlation_cd, p_value_cd = scipy.stats.pearsonr(team_concedes_list, team_differences_list)
+    print(correlation_cd,p_value_cd)
+
+    fig, ax = plt.subplots(1, 1, figsize=(12, 9))
+    ax.scatter(team_concedes_list,team_differences_list,marker="o",s=50,color="blue",alpha=0.6)
+    ax.set_xlim(0, max(team_concedes_list)+1)
+    text = [ax.text(
+                team_drso_results[key][team]["concedes"],   
+                team_drso_results[key][team]["Diff"],
+                team,
+                fontsize=24,
+                color="#595959",
+            ) for team in team_drso_results[key].keys()]
+    adjust_text(text, arrowprops=dict(arrowstyle='->', color='blue', alpha=0.6,))
+    ax.tick_params(axis="both",colors="#595959",labelsize=20,grid_color="#595959",grid_alpha=0.3,)
+    ax.grid()
+    fig.savefig(os.path.join(datafolder+f"/main/team_drso_results_for_concedes.png"))
+    print(os.path.join(datafolder+f"/main/team_drso_results_for_concedes.png") + " is saved")
+    plt.clf()
+    plt.close()
+
+
+#pdb.set_trace()
+
