@@ -1,0 +1,2 @@
+# ### 5. Evaluate team defense ###
+python main.py --count 0 --data statsbomb --game wc2022 --set_vel 5.0 --skip_load_rawdata --skip_compare_the_number_of_players --skip_calculate_obso --skip_verify_obso --skip_identify_optimal_positioning

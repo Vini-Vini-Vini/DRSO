@@ -1,0 +1,2 @@
+### 3. Verify sample OBSO. ###
+python main.py --data statsbomb --game wc2022 --set_vel 5.0 --skip_load_rawdata --skip_compare_the_number_of_players --skip_calculate_obso --skip_identify_optimal_positioning --skip_evaluate_team_defense --skip_show_results
