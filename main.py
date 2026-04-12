@@ -683,17 +683,32 @@ else:
         home_team_result = {"Diff": home_team_differences}
         away_team_result = {"Diff": away_team_differences}
 
+        # 各チームのデータを辞書へ集計するロジックの修正例
+        # 1. ホームチームの集計
         if home_team_name in team_drso_results_all:
-            team_drso_results_all[home_team_name]["Diff"].extend(home_team_result["Diff"])
+            # すでに辞書にチームが存在する場合
+            team_drso_results_all[home_team_name]["Diff"].extend(home_team_differences)
+            # 失点数を累積加算（+=）する処理を追加
+            team_drso_results_all[home_team_name]["concedes"] += home_team_concedes
         else:
-            team_drso_results_all[home_team_name] = {}
-            team_drso_results_all[home_team_name]["Diff"] = home_team_result["Diff"]
-        if away_team_name in team_drso_results_all:
-            team_drso_results_all[away_team_name]["Diff"].extend(away_team_result["Diff"])
-        else:
-            team_drso_results_all[away_team_name] = {}
-            team_drso_results_all[away_team_name]["Diff"] = away_team_result["Diff"]
+            # 辞書に初めてチームを登録する場合：辞書の構造に 'concedes' を含める
+            team_drso_results_all[home_team_name] = {
+                "Diff": home_team_differences,
+                "concedes": home_team_concedes # 初回の失点数を設定
+            }
 
+        # 2. アウェイチームの集計
+        if away_team_name in team_drso_results_all:
+            # すでに辞書にチームが存在する場合
+            team_drso_results_all[away_team_name]["Diff"].extend(away_team_differences)
+            # 失点数を累積加算（+=）する処理を追加
+            team_drso_results_all[away_team_name]["concedes"] += away_team_concedes
+        else:
+            # 辞書に初めてチームを登録する場合
+            team_drso_results_all[away_team_name] = {
+                "Diff": away_team_differences,
+                "concedes": away_team_concedes # 初回の失点数を設定
+            }
     team_drso_results = {
         "all": team_drso_results_all,
     }
