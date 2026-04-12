@@ -635,18 +635,21 @@ else:
 
 
 ### 5. Evaluate team defense ###
-if args.skip_evaluate_team_defense:     
+if args.skip_evaluate_team_defense:
     print("Evaluating team defense is skipped")
 else:
     # all seasons
     team_drso_results_all = {}
-    for game in tqdm(list(games.itertuples()),desc="Evaluating team defense during all seasons"):
+    for game in tqdm(list(games.itertuples()), desc="Evaluating team defense during all seasons"):
         sbload = Sblocal()
-        actions = pd.read_hdf(spadl_h5, f"actions/{game.game_id}")         
+        actions = pd.read_hdf(spadl_h5, f"actions/{game.game_id}")
         lineups = pd.read_hdf(spadl_h5, f"lineups/{game.game_id}")
 
-        home_team_name = lineups.loc[lineups["team_id"]==game.home_team_id,"team_name"].values[0]
-        away_team_name = lineups.loc[lineups["team_id"]==game.away_team_id,"team_name"].values[0]
+        # --- 修正箇所 ---
+        # .strip() を追加して、チーム名の前後の空白を削除
+        home_team_name = lineups.loc[lineups["team_id"] == game.home_team_id, "team_name"].values[0].strip()
+        away_team_name = lineups.loc[lineups["team_id"] == game.away_team_id, "team_name"].values[0].strip()
+        # --- 修正ここまで ---
         home_team_differences = []
         home_team_concedes = game.away_score
         away_team_differences = []
@@ -654,10 +657,10 @@ else:
 
         for event_num in range(len(actions)):
             action = actions.loc[event_num]
-            att_third = np.all(action[["Start X","End X"]].values >= np.array([17.5,17.5]))
+            att_third = np.all(action[["Start X", "End X"]].values >= np.array([17.5, 17.5]))
 
-            if att_third and action['Period']!=5:
-                with open(datafolder+f"/main/optimal_positioning/{game.game_id}/{event_num}.pkl", "rb") as f:
+            if att_third and action['Period'] != 5:
+                with open(datafolder + f"/main/optimal_positioning/{game.game_id}/{event_num}.pkl", "rb") as f:
                     optimal_positioning = pickle.load(f)
 
                 if len(optimal_positioning["result"]) == 0:
@@ -667,87 +670,94 @@ else:
                     for i in range(len(optimal_positioning["result"])):
                         Difference = (
                             optimal_positioning["result"][i]["optimal"]["obso"] - optimal_positioning["result"][i]["data"]["obso"]
-                            )
+                        )
                         Differences.append(Difference)
+
+                    mean_diff = np.nanmean(np.array(Differences))
                     if (action["Type"] in spc.DEFENSE_TYPE) or (action["Type"] in spc.KEEPER_SPECIFIC_TYPE):
                         if action["Team"] == "Home":
-                            home_team_differences.append(np.nanmean(np.array(Differences)))
+                            home_team_differences.append(mean_diff)
                         elif action["Team"] == "Away":
-                            away_team_differences.append(np.nanmean(np.array(Differences)))
+                            away_team_differences.append(mean_diff)
                     else:
                         if action["Team"] == "Home":
-                            away_team_differences.append(np.nanmean(np.array(Differences)))
+                            away_team_differences.append(mean_diff)
                         elif action["Team"] == "Away":
-                            home_team_differences.append(np.nanmean(np.array(Differences)))
+                            home_team_differences.append(mean_diff)
 
-        home_team_result = {"Diff": home_team_differences}
-        away_team_result = {"Diff": away_team_differences}
+        # ✅ 修正点1: 失点数 (concedes) と差分リスト (Diff) を正しく記録・追記する
+        # Home Team
+        if home_team_name not in team_drso_results_all:
+            team_drso_results_all[home_team_name] = {"Diff": [], "concedes": 0, "games_played": 0}
+        team_drso_results_all[home_team_name]["Diff"].extend(home_team_differences)
+        team_drso_results_all[home_team_name]["concedes"] += home_team_concedes
+        team_drso_results_all[home_team_name]["games_played"] += 1
 
-        # 各チームのデータを辞書へ集計するロジックの修正例
-        # 1. ホームチームの集計
-        if home_team_name in team_drso_results_all:
-            # すでに辞書にチームが存在する場合
-            team_drso_results_all[home_team_name]["Diff"].extend(home_team_differences)
-            # 失点数を累積加算（+=）する処理を追加
-            team_drso_results_all[home_team_name]["concedes"] += home_team_concedes
-        else:
-            # 辞書に初めてチームを登録する場合：辞書の構造に 'concedes' を含める
-            team_drso_results_all[home_team_name] = {
-                "Diff": home_team_differences,
-                "concedes": home_team_concedes # 初回の失点数を設定
-            }
+        # Away Team
+        if away_team_name not in team_drso_results_all:
+            team_drso_results_all[away_team_name] = {"Diff": [], "concedes": 0, "games_played": 0}
+        team_drso_results_all[away_team_name]["Diff"].extend(away_team_differences)
+        team_drso_results_all[away_team_name]["concedes"] += away_team_concedes
+        team_drso_results_all[away_team_name]["games_played"] += 1
 
-        # 2. アウェイチームの集計
-        if away_team_name in team_drso_results_all:
-            # すでに辞書にチームが存在する場合
-            team_drso_results_all[away_team_name]["Diff"].extend(away_team_differences)
-            # 失点数を累積加算（+=）する処理を追加
-            team_drso_results_all[away_team_name]["concedes"] += away_team_concedes
-        else:
-            # 辞書に初めてチームを登録する場合
-            team_drso_results_all[away_team_name] = {
-                "Diff": away_team_differences,
-                "concedes": away_team_concedes # 初回の失点数を設定
-            }
     team_drso_results = {
         "all": team_drso_results_all,
     }
 
-    with open(datafolder+f"/main/optimal_positioning/team_drso_results.pkl", "wb") as f:
+    with open(datafolder + f"/main/optimal_positioning/team_drso_results.pkl", "wb") as f:
         pickle.dump(team_drso_results, f)
-    print(datafolder+f"/main/optimal_positioning/team_drso_results.pkl" + " is saved.")
-
+    print(datafolder + f"/main/optimal_positioning/team_drso_results.pkl" + " is saved.")
 
 if args.skip_show_results:
     print("Showing results is skipped.")
 else:
-    with open(datafolder+f"/main/optimal_positioning/team_drso_results.pkl", "rb") as f:
+    with open(datafolder + f"/main/optimal_positioning/team_drso_results.pkl", "rb") as f:
         team_drso_results = pickle.load(f)
 
     key = "all"
-    team_differences_list =[team_drso_results[key][team]["Diff"] for team in team_drso_results[key].keys()]
-    team_concedes_list = [team_drso_results[key][team]["concedes"] for team in team_drso_results[key].keys()]
-    correlation_cd, p_value_cd = scipy.stats.pearsonr(team_concedes_list, team_differences_list)
-    print(correlation_cd,p_value_cd)
+    teams = list(team_drso_results[key].keys())
+
+    team_differences_list = [np.nanmean(team_drso_results[key][team]["Diff"]) if team_drso_results[key][team]["Diff"] else 0 for team in teams]
+
+    # ✅ 修正点2: 総失点数を試合数で割って「平均失点数」を計算
+    team_avg_concedes_list = [
+        team_drso_results[key][team]["concedes"] / team_drso_results[key][team]["games_played"]
+        if team_drso_results[key][team]["games_played"] > 0 else 0
+        for team in teams
+    ]
+
+    # 平均失点数を使って相関を計算
+    correlation_cd, p_value_cd = scipy.stats.pearsonr(team_avg_concedes_list, team_differences_list)
+    print(correlation_cd, p_value_cd)
 
     fig, ax = plt.subplots(1, 1, figsize=(12, 9))
-    ax.scatter(team_concedes_list,team_differences_list,marker="o",s=50,color="blue",alpha=0.6)
-    ax.set_xlim(0, max(team_concedes_list)+1)
+
+    # Print the team name, average goals conceded, and defensive evaluation value for each team
+    print("\n--- Team Defense Evaluation Results ---")
+    for team, avg_concedes, diff in zip(teams, team_avg_concedes_list, team_differences_list):
+        print(f"Team: {team:<25} | Average Conceded: {avg_concedes:.4f} | Defensive Value: {diff:.4f}")
+    print("-------------------------------------\n")
+
+    # 平均失点数をX軸としてプロット
+    ax.scatter(team_avg_concedes_list, team_differences_list, marker="o", s=50, color="blue", alpha=0.6)
+    ax.set_xlim(0, max(team_avg_concedes_list) + 1)
+
+    # グラフのテキスト描画にも平均失点数を使用
     text = [ax.text(
-                team_drso_results[key][team]["concedes"],   
-                team_drso_results[key][team]["Diff"],
+                avg_concedes,
+                diff,
                 team,
                 fontsize=24,
                 color="#595959",
-            ) for team in team_drso_results[key].keys()]
+            ) for team, avg_concedes, diff in zip(teams, team_avg_concedes_list, team_differences_list)]
+
     adjust_text(text, arrowprops=dict(arrowstyle='->', color='blue', alpha=0.6,))
-    ax.tick_params(axis="both",colors="#595959",labelsize=20,grid_color="#595959",grid_alpha=0.3,)
+    ax.tick_params(axis="both", colors="#595959", labelsize=20, grid_color="#595959", grid_alpha=0.3,)
     ax.grid()
-    fig.savefig(os.path.join(datafolder+f"/main/team_drso_results_for_concedes.png"))
-    print(os.path.join(datafolder+f"/main/team_drso_results_for_concedes.png") + " is saved")
+    fig.savefig(os.path.join(datafolder + f"/main/team_drso_results_for_concedes.png"))
+    print(os.path.join(datafolder + f"/main/team_drso_results_for_concedes.png") + " is saved")
     plt.clf()
     plt.close()
-
 
 #pdb.set_trace()
 
