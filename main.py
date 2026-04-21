@@ -276,7 +276,7 @@ try:
 
     # 3. 特徴量の準備（学習時と全く同じ形式にする）
     # カラム名の記号 [] < を除去
-    actions.columns = [c.replace('[', '').replace(']', '').replace('<', '') for c actions.columns]
+    actions.columns = [c.replace('[', '').replace(']', '').replace('<', '') for c in actions.columns]
 
     # チーム名を数値化 (Home: 1, Away: 0)
     actions['Team_id'] = actions['Team'].map({'Home': 1, 'Away': 0}).fillna(0)
