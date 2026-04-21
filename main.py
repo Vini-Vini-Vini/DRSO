@@ -328,7 +328,17 @@ else:
     second_kickoff_team = actions.iloc[actions[actions["Period"]==2].index[0]]["Team"]
     attackers_list = []
     defenders_list = []
+    # --- 追記箇所A：計算対象エリアの固定 ---
+    grid_x = np.linspace(-field_dimen[0]/2., field_dimen[0]/2., n_grid_cells_x)
+    grid_y = np.linspace(-field_dimen[1]/2., field_dimen[1]/2., 32)
+    xs, ys = np.meshgrid(grid_x, grid_y)
     
+    # アタッキングサード（x >= 17.5）のマスクを作成
+    mask = xs >= 17.5
+    target_coords = np.stack([xs[mask], ys[mask]], axis=1) 
+    num_targets = len(target_coords)
+    # ------------------------------------
+
     for event_num in tqdm(range(len(actions)),desc="Setting OBSO"):
         action = actions.loc[event_num]
         att_third = np.all(action[["Start X","End X"]].values >= np.array([17.5,17.5]))
@@ -392,27 +402,35 @@ else:
             duration = action["Duration"]
             coordinates = (direction * action["Freeze Frame 360"]).reshape(-1,2)
 
-            PPCF, _, _, attackers, defenders = mpc.generate_pitch_control_for_event(
-                actor,
-                actor_team,
-                event,
-                ball_start_pos,
-                ball_end_pos,
-                coordinates,
-                duration,
-                direction, 
-                params, 
-                optimal=False, 
-                offsides=True, 
-                set_vel=args.set_vel
-                )
-            OBSO, _ = obs.calc_obso(
-                PPCF, 
-                Trans, 
-                EPV, 
-                ball_start_pos,
-                attack_direction=direction
-                )
+            df_grid = pd.DataFrame({
+                'Team_id': [action['Team_id']] * num_targets,
+                'Period': [action['Period']] * num_targets,
+                'Start Time s': [action['Start Time s']] * num_targets,
+                'Start X': [ball_start_pos[0]] * num_targets,
+                'Start Y': [ball_start_pos[1]] * num_targets,
+                'End X': target_coords[:, 0],
+                'End Y': target_coords[:, 1]
+            })
+
+            # 2. 距離からパス到達時間を推定（カンニング防止）
+            dist = np.sqrt((df_grid['End X'] - ball_start_pos[0])**2 + (df_grid['End Y'] - ball_start_pos[1])**2)
+            df_grid['Duration'] = dist / 15.0 
+
+            # 3. 予測の実行
+            PPCF = np.zeros((32, 50))
+            preds = loaded_model.predict_proba(df_grid[features_list])[:, 1]
+            PPCF[mask] = preds # アタッキングサード部分だけ予測値を代入
+
+            # 4. 選手座標リストの取得（DRSO計算用に必要）
+            # 物理モデルから「選手リスト」だけ借りてきます（支配確率は使いません）
+            _, _, _, attackers, defenders = mpc.generate_pitch_control_for_event(
+                actor, actor_team, event, ball_start_pos, ball_end_pos, 
+                coordinates, duration, direction, params, optimal=False
+            )
+            # ------------------------------
+
+            # 5. M-OBSOの計算（あなたが作ったPPCFを使用）
+            OBSO, _ = obs.calc_obso(PPCF, Trans, EPV, ball_start_pos, attack_direction=direction)
         else:
             attackers = []
             defenders = []
