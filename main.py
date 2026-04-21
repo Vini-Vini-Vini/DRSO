@@ -1,5 +1,6 @@
-import os, pdb, warnings, pickle, argparse, time, random
+import os, pdb, warnings, pickle, argparse, time, random, json
 from tqdm import tqdm
+import joblib
 
 import numpy as np
 import scipy.stats
@@ -256,7 +257,7 @@ else:
 
 print("----------------------------------------")
 
-current_match_str = str(game_id) 
+current_match_str = str(game.game_id) 
 
 print(f"### ML: Selecting model for Match {current_match_str} ###")
 
@@ -275,10 +276,10 @@ try:
 
     # 3. 特徴量の準備（学習時と全く同じ形式にする）
     # カラム名の記号 [] < を除去
-    df_events.columns = [c.replace('[', '').replace(']', '').replace('<', '') for c in df_events.columns]
+    actions.columns = [c.replace('[', '').replace(']', '').replace('<', '') for c in df_events.columns]
 
     # チーム名を数値化 (Home: 1, Away: 0)
-    df_events['Team_id'] = df_events['Team'].map({'Home': 1, 'Away': 0}).fillna(0)
+    actions['Team_id'] = df_events['Team'].map({'Home': 1, 'Away': 0}).fillna(0)
 
     # 特徴量リスト
     features_list = [
@@ -288,7 +289,7 @@ try:
 
     # 4. 支配確率の代わりとなる「パス成功確率」を推定
     # 全イベントに対して計算し、'ml_control_prob' 列に保存
-    df_events['ml_control_prob'] = loaded_model.predict_proba(df_events[features_list])[:, 1]
+    actions['ml_control_prob'] = loaded_model.predict_proba(df_events[features_list])[:, 1]
 
     print(f"Successfully added 'ml_control_prob' using Fold {fold_num} model.")
 
