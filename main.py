@@ -256,7 +256,7 @@ else:
 
 print("----------------------------------------")
 
-current_match_str = str(match_id) 
+current_match_str = str(game_id) 
 
 print(f"### ML: Selecting model for Match {current_match_str} ###")
 
