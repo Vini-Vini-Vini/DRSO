@@ -256,7 +256,6 @@ else:
     print(hist_distance)
 
 print("----------------------------------------")
-
 current_match_str = str(game.game_id) 
 
 print(f"### ML: Selecting model for Match {current_match_str} ###")
@@ -278,27 +277,29 @@ try:
     # カラム名の記号 [] < を除去
     actions.columns = [c.replace('[', '').replace(']', '').replace('<', '') for c in actions.columns]
 
-    # チーム名を数値化 (Home: 1, Away: 0)
-    actions['Team_id'] = actions['Team'].map({'Home': 1, 'Away': 0}).fillna(0)
+# チーム名を数値化 (Home: 1, Away: 0)
+actions['Team_id'] = actions['Team'].map({'Home': 1, 'Away': 0}).fillna(0)
 
-    # 特徴量リスト
-    features_list = [
-        'Team_id', 'Period', 'Start Time s', 'Duration', 
-        'Start X', 'Start Y', 'End X', 'End Y'
-    ]
+# 特徴量リスト
+features_list = [
+    'Team_id', 'Period', 'Start Time s', 'Duration', 
+    'Start X', 'Start Y', 'End X', 'End Y'
+]
 
-    # 4. 支配確率の代わりとなる「パス成功確率」を推定
-    # 全イベントに対して計算し、'ml_control_prob' 列に保存
-    actions['ml_control_prob'] = loaded_model.predict_proba(actions[features_list])[:, 1]
+# 4. 支配確率の代わりとなる「パス成功確率」を推定
+# 全イベントに対して計算し、'ml_control_prob' 列に保存
+actions['ml_control_prob'] = loaded_model.predict_proba(actions[features_list])[:, 1]
 
-    print(f"Successfully added 'ml_control_prob' using Fold {fold_num} model.")
+print(f"Successfully added 'ml_control_prob' using Fold {fold_num} model.")
 
 except FileNotFoundError:
     print("Error: Model files or match_to_fold_map.json not found. Please run train_ml_models.py first.")
 except Exception as e:
     print(f"ML Prediction Error: {e}")
 # ==========================================================
+    
 
+### 2. calculate PPCF and OBSO ###
 ### 2. calculate PPCF and OBSO ###
 # load control and transition model
 params = mpc.default_model_params()
@@ -314,94 +315,76 @@ field_dimen = (105.0, 68.0)
 if args.skip_calculate_obso:
     print("Calculating obso is skipped.")
 else:
+    # 1. 処理対象の試合を決定 (game 変数をここで定義)
     game = games.iloc[(count-1)]
-    # for game in tqdm(list(games.itertuples()),desc=f"Calcurating and storing the values of OBSO",):
+    current_match_str = str(game.game_id)
+    
     print("--------------------")
-    print(f"{game.game_id}")
+    print(f"Processing Match: {current_match_str}")
     print("--------------------")
     os.makedirs(datafolder+"/main/obso", exist_ok=True)
 
+    # 2. 試合データの読み込み (actions 変数をここで定義)
     actions = pd.read_hdf(spadl_h5, f"actions/{game.game_id}")
+    
+    # 3. この試合用の機械学習モデルをロード
+    try:
+        with open('match_to_fold_map.json', 'r') as f:
+            match_to_fold = json.load(f)
+
+        fold_num = match_to_fold.get(current_match_str, 0)
+        model_path = f'pass_model_fold_{fold_num}.pkl'
+        print(f"Loading unbiased model: {model_path}")
+        loaded_model = joblib.load(model_path)
+
+        # 特徴量の準備（actions に対する前処理）
+        actions.columns = [c.replace('[', '').replace(']', '').replace('<', '') for c in actions.columns]
+        actions['Team_id'] = actions['Team'].map({'Home': 1, 'Away': 0}).fillna(0)
+        features_list = ['Team_id', 'Period', 'Start Time s', 'Duration', 'Start X', 'Start Y', 'End X', 'End Y']
+        
+        print(f"Successfully loaded ML model for Fold {fold_num}.")
+    except Exception as e:
+        print(f"ML Model Loading Error: {e}")
+        # モデル読み込みに失敗した場合は既存の物理モデルにフォールバックするように設計してください
+
+    # 4. OBSO計算の初期化
     obso = np.zeros((len(actions), 32, 50))
     ppcf = np.zeros((len(actions), 32, 50))
     first_kickoff_team = actions.iloc[actions[actions["Period"]==1].index[0]]["Team"]
     second_kickoff_team = actions.iloc[actions[actions["Period"]==2].index[0]]["Team"]
     attackers_list = []
     defenders_list = []
-    # --- 追記箇所A：計算対象エリアの固定 ---
+
+    # --- グリッド座標の固定（アタッキングサード用） ---
     grid_x = np.linspace(-field_dimen[0]/2., field_dimen[0]/2., n_grid_cells_x)
     grid_y = np.linspace(-field_dimen[1]/2., field_dimen[1]/2., 32)
     xs, ys = np.meshgrid(grid_x, grid_y)
-    
-    # アタッキングサード（x >= 17.5）のマスクを作成
-    mask = xs >= 17.5
+    mask = xs >= 17.5 # アタッキングサードのみ
     target_coords = np.stack([xs[mask], ys[mask]], axis=1) 
     num_targets = len(target_coords)
-    # ------------------------------------
 
-    for event_num in tqdm(range(len(actions)),desc="Setting OBSO"):
+    # 5. 各イベント（プレー）ごとの計算ループ
+    for event_num in tqdm(range(len(actions)), desc="Setting M-OBSO"):
         action = actions.loc[event_num]
         att_third = np.all(action[["Start X","End X"]].values >= np.array([17.5,17.5]))
-        # shot = ("Shot" in actions["Type"].loc[event_num])
+        
         if att_third:
-            print("event id: ", event_num)
+            # 攻撃方向(direction)の判定
+            if action['Period'] in [1, 3]: kickoff_team = first_kickoff_team
+            else: kickoff_team = second_kickoff_team
+            
+            if action['Team'] == kickoff_team:
+                direction = -1 if (action['Type'] in spc.DEFENSE_TYPE or action['Type'] in spc.KEEPER_SPECIFIC_TYPE) else 1
+            else:
+                direction = 1 if (action['Type'] in spc.DEFENSE_TYPE or action['Type'] in spc.KEEPER_SPECIFIC_TYPE) else -1
 
-            if action['Period']==1:
-                if action['Team']==first_kickoff_team:
-                    if (action['Type'] in spc.DEFENSE_TYPE) or (action['Type'] in spc.KEEPER_SPECIFIC_TYPE):
-                        direction = -1
-                    else:
-                        direction = 1
-                else:
-                    if (action['Type'] in spc.DEFENSE_TYPE) or (action['Type'] in spc.KEEPER_SPECIFIC_TYPE):
-                        direction = 1
-                    else:
-                        direction = -1
-            elif action['Period']==2:
-                if action['Team']==second_kickoff_team:
-                    if (action['Type'] in spc.DEFENSE_TYPE) or (action['Type'] in spc.KEEPER_SPECIFIC_TYPE):
-                        direction = -1
-                    else:
-                        direction = 1
-                else:
-                    if (action['Type'] in spc.DEFENSE_TYPE) or (action['Type'] in spc.KEEPER_SPECIFIC_TYPE):
-                        direction = 1
-                    else:
-                        direction = -1
-
-            elif action['Period']==3:
-                if action['Team']==first_kickoff_team:
-                    if (action['Type'] in spc.DEFENSE_TYPE) or (action['Type'] in spc.KEEPER_SPECIFIC_TYPE):
-                        direction = -1
-                    else:
-                        direction = 1
-                else:
-                    if (action['Type'] in spc.DEFENSE_TYPE) or (action['Type'] in spc.KEEPER_SPECIFIC_TYPE):
-                        direction = 1
-                    else:
-                        direction = -1
-            elif action['Period']==4:
-                if action['Team']==second_kickoff_team:
-                    if (action['Type'] in spc.DEFENSE_TYPE) or (action['Type'] in spc.KEEPER_SPECIFIC_TYPE):
-                        direction = -1
-                    else:
-                        direction = 1
-                else:
-                    if (action['Type'] in spc.DEFENSE_TYPE) or (action['Type'] in spc.KEEPER_SPECIFIC_TYPE):
-                        direction = 1
-                    else:
-                        direction = -1
-
-            # get the details of the event (frame, team in possession, ball_start_position)
-            actor = action["Actor"]
-            actor_team = action["Team"]
-            event = action["Type"]
-            # correct coordinates so that the kickoff team attacks from left to right.
+            # 座標の取得
             ball_start_pos = direction * action[["Start X","Start Y"]].values.astype(float)
             ball_end_pos = direction * action[["End X","End Y"]].values.astype(float)
             duration = action["Duration"]
             coordinates = (direction * action["Freeze Frame 360"]).reshape(-1,2)
 
+            # --- M-PPCF（機械学習ベース支配確率）の計算 ---
             df_grid = pd.DataFrame({
                 'Team_id': [action['Team_id']] * num_targets,
                 'Period': [action['Period']] * num_targets,
@@ -412,39 +395,34 @@ else:
                 'End Y': target_coords[:, 1]
             })
 
-            # 2. 距離からパス到達時間を推定（カンニング防止）
+            # カンニング防止：距離から時間を逆算
             dist = np.sqrt((df_grid['End X'] - ball_start_pos[0])**2 + (df_grid['End Y'] - ball_start_pos[1])**2)
-            df_grid['Duration'] = dist / 15.0 
+            df_grid['Duration'] = dist / 10.0 
 
-            # 3. 予測の実行
+            # グリッドの予測
             PPCF = np.zeros((32, 50))
             preds = loaded_model.predict_proba(df_grid[features_list])[:, 1]
-            PPCF[mask] = preds # アタッキングサード部分だけ予測値を代入
+            PPCF[mask] = preds
 
-            # 4. 選手座標リストの取得（DRSO計算用に必要）
-            # 物理モデルから「選手リスト」だけ借りてきます（支配確率は使いません）
+            # 選手座標リスト取得（DRSO用）
+            actor = action["Actor"]; actor_team = action["Team"]; event = action["Type"]
             _, _, _, attackers, defenders = mpc.generate_pitch_control_for_event(
                 actor, actor_team, event, ball_start_pos, ball_end_pos, 
                 coordinates, duration, direction, params, optimal=False
             )
-            # ------------------------------
 
-            # 5. M-OBSOの計算（あなたが作ったPPCFを使用）
+            # M-OBSOの計算
             OBSO, _ = obs.calc_obso(PPCF, Trans, EPV, ball_start_pos, attack_direction=direction)
         else:
-            attackers = []
-            defenders = []
-            PPCF = np.zeros((32, 50))
-            OBSO = np.zeros((32, 50))
+            attackers, defenders = [], []
+            PPCF, OBSO = np.zeros((32, 50)), np.zeros((32, 50))
 
         attackers_list.append(attackers)
         defenders_list.append(defenders)
-        ppcf[event_num] = PPCF
-        obso[event_num] = OBSO
+        ppcf[event_num], obso[event_num] = PPCF, OBSO
         
-    # save the results.
+    # 結果の保存
     obso_data = {"PPCF": ppcf, "OBSO": obso, "attackers": attackers_list, "defenders": defenders_list}
-    
     with open(datafolder+"/main/obso"+f"/{game.game_id}_{args.set_vel}.pkl", "wb") as f:
         pickle.dump(obso_data, f)
 
