@@ -277,20 +277,20 @@ try:
     # カラム名の記号 [] < を除去
     actions.columns = [c.replace('[', '').replace(']', '').replace('<', '') for c in actions.columns]
 
-# チーム名を数値化 (Home: 1, Away: 0)
-actions['Team_id'] = actions['Team'].map({'Home': 1, 'Away': 0}).fillna(0)
+    # チーム名を数値化 (Home: 1, Away: 0)
+    actions['Team_id'] = actions['Team'].map({'Home': 1, 'Away': 0}).fillna(0)
 
-# 特徴量リスト
-features_list = [
-    'Team_id', 'Period', 'Start Time s', 'Duration', 
-    'Start X', 'Start Y', 'End X', 'End Y'
-]
+    # 特徴量リスト
+    features_list = [
+        'Team_id', 'Period', 'Start Time s', 'Duration', 
+        'Start X', 'Start Y', 'End X', 'End Y'
+    ]
 
-# 4. 支配確率の代わりとなる「パス成功確率」を推定
-# 全イベントに対して計算し、'ml_control_prob' 列に保存
-actions['ml_control_prob'] = loaded_model.predict_proba(actions[features_list])[:, 1]
+    # 4. 支配確率の代わりとなる「パス成功確率」を推定
+    # 全イベントに対して計算し、'ml_control_prob' 列に保存
+    actions['ml_control_prob'] = loaded_model.predict_proba(actions[features_list])[:, 1]
 
-print(f"Successfully added 'ml_control_prob' using Fold {fold_num} model.")
+    print(f"Successfully added 'ml_control_prob' using Fold {fold_num} model.")
 
 except FileNotFoundError:
     print("Error: Model files or match_to_fold_map.json not found. Please run train_ml_models.py first.")
