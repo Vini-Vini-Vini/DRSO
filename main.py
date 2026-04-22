@@ -607,7 +607,7 @@ else:
             duration = action["Duration"]
             coordinates = (direction * action["Freeze Frame 360"]).reshape(-1,2)
 
-            optimal_positioning_at_event["result"] = obs.identify_optimal_positionings(
+            optimal_positioning_at_event["result"] = obs.identify_optimal_positionings_ml(
                 actor,
                 actor_team,
                 event,
