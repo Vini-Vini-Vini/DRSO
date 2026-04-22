@@ -591,7 +591,9 @@ else:
                     else:
                         direction = -1
 
-            obso = obso_data["OBSO"][event_num]
+            # --- 変更点 1: OBSO値ではなく、MLベースのPPCF行列を読み込む ---
+            # obso = obso_data["OBSO"][event_num]  # これをコメントアウト
+            current_ppcf_ml = obso_data["PPCF"][event_num] # セクション2で保存したMLベースの支配確率を取得
             attackers = obso_data["attackers"][event_num]
             defenders = obso_data["defenders"][event_num]
 
@@ -613,7 +615,7 @@ else:
                 ball_end_pos,
                 coordinates,
                 duration,
-                obso, 
+                current_ppcf_ml,
                 attackers, 
                 defenders, 
                 direction, 

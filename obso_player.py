@@ -77,7 +77,12 @@ def verify_obso(
     return (players_se, scorer_se, non_scorer_se)
 
 
-def identify_optimal_positionings(
+import numpy as np
+import copy
+from tqdm import tqdm
+from itertools import product
+
+def identify_optimal_positionings_ml(
     actor,
     actor_team,
     event,
@@ -85,7 +90,7 @@ def identify_optimal_positionings(
     ball_end_pos,
     coordinates,
     duration,
-    obso: np.array,
+    current_ppcf_ml,  # セクション2で計算済みの32x50のMLベースPPCF行列
     attackers: list,
     defenders: list,
     direction: int,
@@ -98,125 +103,80 @@ def identify_optimal_positionings(
 ):
     optimal_positioning_at_event = []
     
+    # グリッド設定の初期化
     n_grid_cells_y = int(n_grid_cells_x * field_dimen[1] / field_dimen[0])
     dx = field_dimen[0] / n_grid_cells_x
     dy = field_dimen[1] / n_grid_cells_y
     xgrid = np.arange(n_grid_cells_x) * dx - field_dimen[0] / 2.0 + dx / 2.0
     ygrid = np.arange(n_grid_cells_y) * dy - field_dimen[1] / 2.0 + dy / 2.0
 
-    target_obso = obso
-    target_attackers = attackers
-    target_defenders = defenders
-    max_obso_index = divmod(np.argmax(target_obso), target_obso.shape[1])
+    # 1. 初期状態のリスク（M-OBSO）を計算
+    initial_obso, _ = calc_obso(current_ppcf_ml, Trans, EPV, ball_start_pos, attack_direction=direction)
+    
+    # 最もリスクが高い地点（max_obso）を特定
+    max_obso_index = divmod(np.argmax(initial_obso), initial_obso.shape[1])
     max_obso_grid = np.array([xgrid[max_obso_index[1]], ygrid[max_obso_index[0]]])
     
-    if (len(target_attackers) != 0) and (len(target_defenders) != 0):
-        optimal_positioning_for_def = {
-            "id": None, 
-            "data": {"coordinate": None, "obso": None}, 
-            "optimal": {"coordinate": None, "obso": None}, 
-            }
-        defenders_positions = []
-        for defender in target_defenders:
-            defenders_positions.append(defender.position)
-        defenders_positions = np.array(defenders_positions)
+    if (len(attackers) != 0) and (len(defenders) != 0):
+        # 既存コード通り、最大リスク地点に近い守備者3人を選択
+        defenders_positions = np.array([d.position for d in defenders])
         max_obso_nearest_defs = np.argsort(
-            np.sqrt(
-                ((defenders_positions[:,0] - max_obso_grid[0])**2 
-                 + (defenders_positions[:,1] - max_obso_grid[1])**2)
-                )
+            np.sqrt(((defenders_positions[:,0] - max_obso_grid[0])**2 + (defenders_positions[:,1] - max_obso_grid[1])**2))
         )[0:3]
 
-        for id_def in tqdm(max_obso_nearest_defs):
-            optimal_positioning_id_def = copy.deepcopy(optimal_positioning_for_def)
-            target_attackers_tmp = copy.deepcopy(target_attackers)
-            target_defenders_tmp = copy.deepcopy(target_defenders)
-            optimal_positioning_id_def["id"] = id_def
-            position_tmp = target_defenders_tmp[id_def].position
-            optimal_positioning_id_def["data"]["coordinate"] = position_tmp
-            optimal_positioning_id_def["data"]["obso"] = np.nanmax(target_obso)
+        for id_def in tqdm(max_obso_nearest_defs, desc="Optimizing Defenders (ML-Hybrid)"):
+            optimal_result = {
+                "id": id_def, 
+                "data": {"coordinate": defenders[id_def].position, "obso": np.nanmax(initial_obso)}, 
+                "optimal": {"coordinate": None, "obso": None}
+            }
+            
+            pos_actual = defenders[id_def].position
+            if np.any(np.isnan(pos_actual)):
+                continue
 
-            if np.any(np.isnan(position_tmp)):
-                print("Actual positioning didn't exist.")
-                optimal_positioning_id_def["optimal"]["coordinate"] = optimal_positioning_id_def["data"]["coordinate"]
-                optimal_positioning_id_def["optimal"]["obso"] = np.nan
-            else:
-                grid_size_x = spc.FIELD_LENGTH / n_grid_cells_x
-                grid_size_y = spc.FIELD_WIDTH / n_grid_cells_y
-                player_grid_x = int((position_tmp[0] + (spc.FIELD_LENGTH / 2)) // grid_size_x)
-                player_grid_y = int((position_tmp[1] + (spc.FIELD_WIDTH / 2)) // grid_size_y)
+            # 探索候補の4点（グリッド境界）を算出
+            grid_size_x, grid_size_y = 105.0 / n_grid_cells_x, 68.0 / n_grid_cells_y
+            px = int((pos_actual[0] + 52.5) // grid_size_x)
+            py = int((pos_actual[1] + 34.0) // grid_size_y)
+            
+            x_cands = [xgrid[max(0, min(n_grid_cells_x-1, px))], xgrid[max(0, min(n_grid_cells_x-1, px+1))]]
+            y_cands = [ygrid[max(0, min(n_grid_cells_y-1, py))], ygrid[max(0, min(n_grid_cells_y-1, py+1))]]
+            combinations = list(product(x_cands, y_cands))
 
-                # Candidate coordinates to search
-                if player_grid_x < 0:
-                    x_candidate_l = - spc.FIELD_LENGTH / 2
-                    x_candidate_r = xgrid[player_grid_x+1]
-                elif player_grid_x > (n_grid_cells_x - 1):
-                    x_candidate_l = spc.FIELD_LENGTH / 2
-                    x_candidate_r = spc.FIELD_LENGTH / 2
-                elif player_grid_x + 1 > (n_grid_cells_x - 1):
-                    x_candidate_l = xgrid[player_grid_x]
-                    x_candidate_r = spc.FIELD_LENGTH / 2
-                else:
-                    x_candidate_l = xgrid[player_grid_x]
-                    x_candidate_r = xgrid[player_grid_x+1]
-                if player_grid_y < 0:
-                    y_candidate_u = - spc.FIELD_WIDTH / 2
-                    y_candidate_d = ygrid[player_grid_y+1]
-                elif player_grid_y > (n_grid_cells_y - 1):
-                    y_candidate_u = spc.FIELD_WIDTH / 2
-                    y_candidate_d = spc.FIELD_WIDTH / 2
-                elif player_grid_y + 1 > (n_grid_cells_y - 1):
-                    y_candidate_u = ygrid[player_grid_y]
-                    y_candidate_d = spc.FIELD_WIDTH / 2
-                else:
-                    y_candidate_u = ygrid[player_grid_y]
-                    y_candidate_d = ygrid[player_grid_y+1]
+            for target_pos in combinations:
+                temp_defenders = copy.deepcopy(defenders)
+                temp_defenders[id_def].position = np.array(target_pos)
 
-                combinations = list(product([x_candidate_l, x_candidate_r], [y_candidate_u, y_candidate_d]))
-                for target_combination in combinations:
-                    target_defenders_tmp[id_def].position = np.array([target_combination[0], target_combination[1]])
-                    PPCF_tmp, _, _, target_attackers_tmp, target_defenders_tmp = mpc.generate_pitch_control_for_event(
-                        actor,
-                        actor_team,
-                        event,
-                        ball_start_pos,
-                        ball_end_pos,
-                        coordinates,
-                        duration,
-                        direction, 
-                        params, 
-                        attackers=target_attackers_tmp, 
-                        defenders=target_defenders_tmp, 
-                        optimal=True,
-                        set_vel=set_vel
-                        )
-                    obso_tmp, _ = calc_obso(
-                        PPCF_tmp, 
-                        Trans, 
-                        EPV, 
-                        ball_start_pos, 
-                        attack_direction=direction
-                        )
-                    if np.nanmax(obso_tmp) >= np.nanmax(target_obso):
-                        continue
-                    elif optimal_positioning_id_def["optimal"]["obso"] is None:
-                        print("Set optimal positioning.")
-                        optimal_positioning_id_def["optimal"]["coordinate"] = target_combination
-                        optimal_positioning_id_def["optimal"]["obso"] = np.nanmax(obso_tmp)
-                    else:
-                        if optimal_positioning_id_def["optimal"]["obso"] < np.nanmax(obso_tmp):
-                            continue
-                        else:
-                            print("Update optimal positioning.")
-                            optimal_positioning_id_def["optimal"]["coordinate"] = target_combination
-                            optimal_positioning_id_def["optimal"]["obso"] = np.nanmax(obso_tmp)
+                # --- 研究の核：ハイブリッドPPCF再計算 ---
+                # 2. 選手移動後の「物理的な守備支配確率 (P_def)」を算出
+                _, P_def_physics, _, _, _ = mpc.generate_pitch_control_for_event(
+                    actor, actor_team, event, ball_start_pos, ball_end_pos, 
+                    coordinates, duration, direction, params, 
+                    attackers=attackers, defenders=temp_defenders, 
+                    optimal=True, set_vel=set_vel
+                )
+                
+                # 3. ML予測（戦術背景）と物理カバー（選手移動）を合成
+                # ppcf_hybrid = (攻撃側のパス成功期待度) × (守備側がカバーしきれていない確率)
+                ppcf_hybrid = current_ppcf_ml * (1.0 - P_def_physics)
 
-                if optimal_positioning_id_def["optimal"]["obso"] is None:
-                    print("Actual positioning was optimal.")
-                    optimal_positioning_id_def["optimal"]["coordinate"] = optimal_positioning_id_def["data"]["coordinate"]
-                    optimal_positioning_id_def["optimal"]["obso"] = optimal_positioning_id_def["data"]["obso"]
+                # 4. 合成されたPPCFからOBSOを算出
+                obso_hybrid, _ = calc_obso(ppcf_hybrid, Trans, EPV, ball_start_pos, attack_direction=direction)
+                
+                current_max_obso = np.nanmax(obso_hybrid)
 
-            optimal_positioning_at_event.append(optimal_positioning_id_def)
+                # リスクが最小になる位置を更新
+                if optimal_result["optimal"]["obso"] is None or current_max_obso < optimal_result["optimal"]["obso"]:
+                    optimal_result["optimal"]["coordinate"] = target_pos
+                    optimal_result["optimal"]["obso"] = current_max_obso
+
+            # 改善結果の判定
+            if optimal_result["optimal"]["obso"] is None or optimal_result["optimal"]["obso"] >= optimal_result["data"]["obso"]:
+                optimal_result["optimal"]["coordinate"] = optimal_result["data"]["coordinate"]
+                optimal_result["optimal"]["obso"] = optimal_result["data"]["obso"]
+
+            optimal_positioning_at_event.append(optimal_result)
 
     return optimal_positioning_at_event
 
