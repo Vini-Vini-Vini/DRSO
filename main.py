@@ -291,7 +291,8 @@ else:
         action = actions.loc[event_num]
         att_third = np.all(action[["Start X","End X"]].values >= np.array([17.5,17.5]))
         # shot = ("Shot" in actions["Type"].loc[event_num])
-        if att_third:
+        is_pass = action['Type'] in ['ground_pass', 'high_pass', 'low_pass']
+        if att_third and is_pass:
             print("event id: ", event_num)
 
             if action['Period']==1:
@@ -546,7 +547,8 @@ else:
         second_kickoff_team = actions.iloc[actions[actions["Period"]==2].index[0]]["Team"]
 
         att_third = np.all(action[["Start X","End X"]].values >= np.array([17.5,17.5]))
-        if att_third:
+        is_pass = action['Type'] in ['ground_pass', 'high_pass', 'low_pass']
+        if att_third and is_pass:
             optimal_positioning_at_event = {"event_num": event_num,}
 
             if action['Period']==1:
@@ -658,8 +660,8 @@ else:
         for event_num in range(len(actions)):
             action = actions.loc[event_num]
             att_third = np.all(action[["Start X", "End X"]].values >= np.array([17.5, 17.5]))
-
-            if att_third and action['Period'] != 5:
+            is_pass = action['Type'] in ['ground_pass', 'high_pass', 'low_pass']
+            if att_third and is_pass and action['Period'] != 5:
                 with open(datafolder + f"/main/optimal_positioning/{game.game_id}/{event_num}.pkl", "rb") as f:
                     optimal_positioning = pickle.load(f)
 
