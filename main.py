@@ -51,7 +51,7 @@ print("----------------------------------------")
 
 ### 1. load and convert statsbomb data ###
 if args.data == "statsbomb":
-    data_folder = "/home/furujun/work/data"
+    data_folder = "/home/furujun/work"
     DLoader = StatsBombLoader(root=data_folder, getter="local")
 else:
     pdb.set_trace()
